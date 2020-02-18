@@ -1,5 +1,6 @@
 from flask import Flask, request
 import requests
+from requests_futures.sessions import FuturesSession
 import socket
 import cv2
 import multiprocessing
@@ -7,8 +8,6 @@ import time
 import pickle
 
 app = Flask(__name__)
-
-sess = requests.session()
 
 AdressList = []
 
@@ -20,6 +19,7 @@ def home():
 
 def makeAsyncLoop(links):  # Распредилитель изображений
     video_capture = cv2.VideoCapture(0)
+    sess = FuturesSession()
     counter = 0
     scale = 1
     print(str(links) + ' - links are looped')
@@ -29,18 +29,17 @@ def makeAsyncLoop(links):  # Распредилитель изображений
         ret, frame = video_capture.read()  # Чтение кадра с камеры
 
         small_frame = cv2.resize(frame, (0, 0), fx=scale, fy=scale)  # При небходимости, уменьшение разрешения кадра
-        rgb_small_frame = small_frame[:, :, ::-1]
 
-        img = pickle.dumps(rgb_small_frame)  # Сериализация изображения
-        try:
-            requests.post(links[counter] + 'handle', data=img)  # Попытка отправить следующий кадр
-        except:
-            links.remove(links[counter])  # Удалить ссылку из списка если она не доступна
-
+        img = pickle.dumps(small_frame)  # Сериализация изображения
+        # try:
+        sess.post(links[counter] + 'handle', data=img)  # Попытка отправить следующий кадр
+        # except:
+        #     links.remove(links[counter])  # Удалить ссылку из списка если она не доступна
         counter += 1
         if counter > len(links) - 1:
             counter = 0
-
+            sess.close()
+            sess = FuturesSession()
 
 process = multiprocessing.Process(target=makeAsyncLoop, args=(AdressList,))
 
@@ -48,7 +47,7 @@ process = multiprocessing.Process(target=makeAsyncLoop, args=(AdressList,))
 @app.route("/print", methods=["POST"])
 def sent_message():  # Вывод результатов обработки кадра
     data = request.data
-    print(pickle.loads(data))
+    print(data)
     return '200'
 
 
@@ -56,11 +55,10 @@ def sent_message():  # Вывод результатов обработки ка
 def setNewWorker():  # Метод регестрирующий новый компьютер
     url = request.json['url']
     AdressList.append(url)
-    time.sleep(1.5)
+    time.sleep(4)
     requests.get(url + 'setUrl', json={'url': 'http://' + socket.gethostbyname(socket.gethostname()) + ':5000/'})
     restart()
     return '200'
-
 
 
 @app.route('/restart')
